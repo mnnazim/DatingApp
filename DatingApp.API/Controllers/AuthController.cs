@@ -3,6 +3,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using System.Threading.Tasks;
+using AutoMapper;
 using DatingApp.API.Data;
 using DatingApp.API.Dtos;
 using DatingApp.API.Models;
@@ -18,9 +19,11 @@ namespace DatingApp.API.Controllers
     {
         private readonly IAuthRepository _repo;
         private readonly IConfiguration _config;
+        private readonly IMapper _mapper;
 
-        public AuthController(IAuthRepository repo, IConfiguration config)
+        public AuthController(IAuthRepository repo, IConfiguration config, IMapper mapper)
         {
+            _mapper = mapper;
             _repo = repo;
             _config = config;
         }
@@ -28,38 +31,41 @@ namespace DatingApp.API.Controllers
         [HttpPost("register")]
         public async Task<IActionResult> Register(UserRegister userRegister)
         {
-            
+
             userRegister.UserName = userRegister.UserName.ToLower();
-            if(await _repo.UserExists(userRegister.UserName)){
+            if (await _repo.UserExists(userRegister.UserName))
+            {
                 return BadRequest("User already Exist");
             }
 
             var user = new User();
             user.UserName = userRegister.UserName;
 
-            var createdUser = await _repo.Register(user, userRegister.Password); 
+            var createdUser = await _repo.Register(user, userRegister.Password);
 
             return StatusCode(201);
         }
         [HttpPost("login")]
         public async Task<IActionResult> Login(UserLogin login)
         {
-           
-           var user = await _repo.Login(login.UserName.ToLower(),login.Password);
-           if(user == null){
-               return Unauthorized();
-           }
+
+            var userFromRepo = await _repo.Login(login.UserName.ToLower(), login.Password);
+            if (userFromRepo == null)
+            {
+                return Unauthorized();
+            }
 
             var claims = new[]
             {
-                new Claim(ClaimTypes.NameIdentifier,user.Id.ToString()),
-                new Claim(ClaimTypes.Name, user.UserName)
+                new Claim(ClaimTypes.NameIdentifier,userFromRepo.Id.ToString()),
+                new Claim(ClaimTypes.Name, userFromRepo.UserName)
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config.GetSection("AppSettings:Token").Value));
 
-            var creds = new SigningCredentials(key,SecurityAlgorithms.HmacSha512Signature);
-            var tokenDescriptor = new SecurityTokenDescriptor{
+            var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
+            var tokenDescriptor = new SecurityTokenDescriptor
+            {
                 Subject = new ClaimsIdentity(claims),
                 Expires = DateTime.Now.AddDays(1),
                 SigningCredentials = creds
@@ -69,8 +75,12 @@ namespace DatingApp.API.Controllers
 
             var token = tokenHandler.CreateToken(tokenDescriptor);
 
-            return Ok(new{
-                token = tokenHandler.WriteToken(token)
+            var user = _mapper.Map<UserForListDto>(userFromRepo);
+
+            return Ok(new
+            {
+                token = tokenHandler.WriteToken(token),
+                user = user
             });
         }
 
